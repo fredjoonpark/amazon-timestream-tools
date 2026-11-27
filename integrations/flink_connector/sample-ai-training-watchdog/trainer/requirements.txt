@@ -1,0 +1,14 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+# Installed into the Neuron DLAMI's PyTorch venv; run.sh pins torch, torch-xla, torch-neuronx,
+# and neuronx-cc to the AMI's versions so these never replace them.
+transformers>=4.45,<5
+peft>=0.13,<1
+boto3>=1.34
+# GRPO reward: executes model-written SQL with DataFusion, the SQL engine inside InfluxDB 3.
+datafusion>=55,<56
+# Below 26, which fails to import on NumPy 1.x (and doesn't declare it, so pip keeps the venv's).
+pyarrow>=17,<26
+# Unpinned: the AMI's venv already has it, so pip keeps the version neuronx-cc was built with.
+numpy

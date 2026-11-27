@@ -1,0 +1,2680 @@
+{
+  "uid": "training-watchdog-reward-hacking",
+  "title": "AI Training Watchdog: Reward hacking",
+  "tags": [
+    "flink",
+    "influxdb3",
+    "training",
+    "watchdog-demo"
+  ],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "schemaVersion": 39,
+  "links": [
+    {
+      "title": "Demo dashboards",
+      "type": "dashboards",
+      "tags": [
+        "watchdog-demo"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ],
+  "panels": [
+    {
+      "type": "text",
+      "title": "How to demonstrate reward hacking",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 10
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**For `healthy_grpo`, `reward_hacking`, and `reward_hacking_unwatched`.** Dashed reward: what the training grader pays. Solid accuracy: correct results on unseen questions.\n\nBoth hacking runs receive **STOP**. The trainer's **response** shows whether it obeyed (`stopping`) or ignored it (`ignored (watchdog off)`). Compare **Last GRPO step** to see how far each continued. The watched trainer saves its best earlier model; its accuracy chart ends at the stopping point.\n\nHeld-out accuracy can also fall with an honest grader (`healthy_grpo` overfitting late in a run). The *grader gap* (reward minus strict correctness, in *Grader disagreement*) tells them apart: flat at 0 there, so Flink opens **HELDOUT_DECLINE / ADVISE**, not STOP; the response reads `noted: ...` and training continues. A gap rising from below 0 is the exploit.\n\n*Held-out accuracy by question type* shows which questions the exploit breaks. *Label-free signals* (policy entropy, sample NLL, KL to the reference) need no gold answers; they show the policy changing, not whether it is right. Both plot one run by GRPO step: select a run in **Run**.\n\n**Run = All** compares related runs in this time range. Real runs start with 30 SFT steps; these panels fill during GRPO. In the incident log, **arg** is the best evaluation step; **RESOLVED** means the detector went quiet."
+      },
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Reward vs held-out accuracy: what the grader pays against what is right",
+      "description": "Dashed: GRPO training reward (10-step moving average). Solid with points: held-out SQL execution accuracy (64 questions the model never trains on). Reward hacking is the gap opening between them. Pick a run in Run to isolate it.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, concat(scenario, ' reward') AS series,\n       AVG(reward) OVER (PARTITION BY run_id ORDER BY time ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) AS value\nFROM rl_step WHERE $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')\nUNION ALL\nSELECT time, concat(scenario, ' held-out accuracy') AS series, exec_accuracy AS value\nFROM eval WHERE exec_accuracy IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')\nORDER BY time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "series"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "GRPO runs only: run healthy_grpo, reward_hacking, or reward_hacking_unwatched",
+          "displayName": "${__field.labels.series}",
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "pointSize": 8,
+            "spanNulls": false,
+            "insertNulls": 120000
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy reward"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy held-out accuracy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bad_lr reward"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bad_lr held-out accuracy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy_grpo reward"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy_grpo held-out accuracy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reward_hacking reward"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reward_hacking held-out accuracy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy reward"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy held-out accuracy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_bad_lr reward"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_bad_lr held-out accuracy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy_grpo reward"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy_grpo held-out accuracy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking reward"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking held-out accuracy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking_unwatched reward"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking_unwatched held-out accuracy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 2
+    },
+    {
+      "type": "table",
+      "title": "GRPO run outcomes: training progress and STOP response",
+      "description": "One row per run: how far GRPO progressed, best and latest held-out accuracy in the selected time range, and the trainer's latest STOP and ADVISE responses. Both hacking runs receive STOP; only the watched trainer obeys it. A run whose held-out accuracy declines while its grader agrees with the strict check (healthy_grpo overfitting) receives ADVISE instead: the trainer keeps its best evaluation's adapters and keeps training. Best observed accuracy is the highest evaluation in the selected window.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "WITH progress AS (\n  SELECT run_id, scenario, max(step) AS last_grpo_step\n  FROM rl_step WHERE $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched') GROUP BY run_id, scenario\n), best_eval AS (\n  SELECT run_id, max(exec_accuracy) AS best_accuracy\n  FROM eval WHERE exec_accuracy IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched') GROUP BY run_id\n), latest_eval AS (\n  SELECT run_id, exec_accuracy,\n         row_number() OVER (PARTITION BY run_id ORDER BY time DESC) AS evaluation_order\n  FROM eval WHERE exec_accuracy IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')\n), stop_response AS (\n  SELECT run_id, outcome,\n         row_number() OVER (PARTITION BY run_id ORDER BY time DESC) AS response_order\n  FROM control_ack WHERE action = 'STOP' AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')\n), advise_response AS (\n  SELECT run_id, outcome,\n         row_number() OVER (PARTITION BY run_id ORDER BY time DESC) AS response_order\n  FROM control_ack WHERE action = 'ADVISE' AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')\n), commands AS (\n  SELECT run_id, max(CASE WHEN action = 'STOP' THEN 1 ELSE 0 END) AS got_stop,\n         max(CASE WHEN action = 'ADVISE' THEN 1 ELSE 0 END) AS got_advise\n  FROM incident WHERE state = 'OPEN' AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched') GROUP BY run_id\n)\nSELECT p.scenario, p.run_id, p.last_grpo_step AS \"Last GRPO step\",\n       b.best_accuracy AS \"Best observed accuracy\", e.exec_accuracy AS \"Latest accuracy\",\n       COALESCE(a.outcome, CASE WHEN c.got_stop = 1 THEN 'not acknowledged: the run had ended' END) AS \"STOP response\",\n       COALESCE(v.outcome, CASE WHEN c.got_advise = 1 THEN 'not acknowledged: the run had ended' END) AS \"ADVISE response\"\nFROM progress p\nLEFT JOIN best_eval b ON b.run_id = p.run_id\nLEFT JOIN latest_eval e ON e.run_id = p.run_id AND e.evaluation_order = 1\nLEFT JOIN stop_response a ON a.run_id = p.run_id AND a.response_order = 1\nLEFT JOIN advise_response v ON v.run_id = p.run_id AND v.response_order = 1\nLEFT JOIN commands c ON c.run_id = p.run_id\nORDER BY p.run_id DESC",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "scenario"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 240
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "run_id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last GRPO step"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Best observed accuracy"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Latest accuracy"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "STOP response"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 250
+              },
+              {
+                "id": "noValue",
+                "value": "none"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^stopping.*",
+                      "result": {
+                        "color": "green",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "ignored (watchdog off)": {
+                        "text": "ignored (watchdog off)",
+                        "color": "red",
+                        "index": 1
+                      },
+                      "not acknowledged: the run had ended": {
+                        "color": "#8e8e8e",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ADVISE response"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 330
+              },
+              {
+                "id": "noValue",
+                "value": "none"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^noted.*",
+                      "result": {
+                        "color": "blue",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "not acknowledged: the run had ended": {
+                        "color": "#8e8e8e",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "id": 3
+    },
+    {
+      "type": "table",
+      "title": "Incident log: Flink decides, InfluxDB carries the command, the trainer responds",
+      "description": "Each OPEN row is a command: the trainer reads it from this table (reader endpoint) and responds. ROLLBACK and STOP change the run; ADVISE (HELDOUT_DECLINE: held-out accuracy fell but the grader agreed with the strict check, likely overfitting) lets the run continue, and the trainer keeps its best evaluation's adapters. response is what the trainer reported doing (control_ack), joined on incident_id; seen after is the time from the event that triggered the detection to the trainer reading the row from InfluxDB.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT i.time, i.state, i.type, i.run_id, i.action, i.arg, a.outcome AS response,\n       round(a.seen_latency_ms) AS \"seen after\", i.onset_step, i.step, i.severity, i.message\nFROM (SELECT time, state, type, run_id, incident_id, action, action_arg AS arg, onset_step, step, severity, message\n      FROM incident WHERE $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched') ORDER BY time DESC LIMIT 100) i\nLEFT JOIN (SELECT incident_id, outcome, seen_latency_ms FROM control_ack WHERE $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')) a\n  ON a.incident_id = i.incident_id\nORDER BY i.time DESC",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "message"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 600
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "action"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "STOP": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "ROLLBACK": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "ADVISE": {
+                        "color": "blue",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "response"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 330
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^(stopping|restored).*",
+                      "result": {
+                        "color": "green",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^noted.*",
+                      "result": {
+                        "color": "blue",
+                        "index": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "ignored (watchdog off)": {
+                        "text": "ignored (watchdog off)",
+                        "color": "red",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "run_id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 270
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seen after"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "id": 4
+    },
+    {
+      "type": "timeseries",
+      "title": "Grader disagreement: paid but wrong vs correct but unpaid, and the grader gap",
+      "description": "Per GRPO step, share of sampled candidates (10-step moving average). Correct but unpaid (dashed): a right answer the lenient grader paid 0, usually a correct query that returns no rows. That is the pressure. Paid but wrong (solid): the lenient grader paid a wrong answer. That is the exploit. Both are measured against the lenient grader, even in healthy_grpo, whose training grader is the strict one. Grader gap (dotted, right axis): the training reward minus exec_match, the share of the same candidates that are strictly correct (10-step moving average); for the lenient grader it is paid but wrong minus correct but unpaid. It is what the watchdog checks when held-out accuracy falls: 0 for an honest grader (a decline is likely overfitting: HELDOUT_DECLINE, ADVISE), rising for one being gamed (REWARD_HACKING, STOP). Simulated runs report only the gap.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, concat(scenario, ' paid but wrong') AS series,\n       AVG(paid_but_wrong_rate) OVER (PARTITION BY run_id ORDER BY time ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) AS value\nFROM rl_step WHERE paid_but_wrong_rate IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')\nUNION ALL\nSELECT time, concat(scenario, ' correct but unpaid') AS series,\n       AVG(honest_unpaid_rate) OVER (PARTITION BY run_id ORDER BY time ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) AS value\nFROM rl_step WHERE honest_unpaid_rate IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')\nUNION ALL\nSELECT time, concat(scenario, ' grader gap') AS series,\n       AVG(reward - exec_match) OVER (PARTITION BY run_id ORDER BY time ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) AS value\nFROM rl_step WHERE reward IS NOT NULL AND exec_match IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')\nORDER BY time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "series"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels.series}",
+          "noValue": "GRPO runs only: run healthy_grpo, reward_hacking, or reward_hacking_unwatched",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "pointSize": 7,
+            "spanNulls": 120000,
+            "insertNulls": false
+          },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy paid but wrong"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy correct but unpaid"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy grader gap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "grader gap"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "min",
+                "value": -1
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bad_lr paid but wrong"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bad_lr correct but unpaid"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bad_lr grader gap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "grader gap"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "min",
+                "value": -1
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy_grpo paid but wrong"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy_grpo correct but unpaid"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy_grpo grader gap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "grader gap"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "min",
+                "value": -1
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reward_hacking paid but wrong"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reward_hacking correct but unpaid"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reward_hacking grader gap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "grader gap"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "min",
+                "value": -1
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy paid but wrong"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy correct but unpaid"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy grader gap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "grader gap"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "min",
+                "value": -1
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_bad_lr paid but wrong"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_bad_lr correct but unpaid"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_bad_lr grader gap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "grader gap"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "min",
+                "value": -1
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy_grpo paid but wrong"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy_grpo correct but unpaid"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy_grpo grader gap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "grader gap"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "min",
+                "value": -1
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking paid but wrong"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking correct but unpaid"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking grader gap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "grader gap"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "min",
+                "value": -1
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking_unwatched paid but wrong"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking_unwatched correct but unpaid"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking_unwatched grader gap"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "grader gap"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "min",
+                "value": -1
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Queries that filter on a host or sensor",
+      "description": "Share of sampled queries with a host = or sensor = condition (10-step moving average). Hosts and sensors are where most no-data answers come from.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, scenario, AVG(entity_filter_rate) OVER (PARTITION BY scenario, run_id ORDER BY time ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) AS entity_filter_rate FROM rl_step WHERE entity_filter_rate IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched') ORDER BY time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "scenario"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "pointSize": 8,
+            "spanNulls": false,
+            "insertNulls": 30000
+          },
+          "displayName": "${__field.labels.scenario}",
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "noValue": "GRPO runs only: run healthy_grpo, reward_hacking, or reward_hacking_unwatched"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bad_lr"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy_grpo"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reward_hacking"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_bad_lr"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy_grpo"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking_unwatched"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 6
+    },
+    {
+      "type": "trend",
+      "title": "Held-out accuracy by question type, by GRPO step (select one run)",
+      "description": "Execution accuracy on the held-out questions, split by type: questions whose host or sensor has data, questions with no data (a correct answer is empty, which the lenient grader does not pay), and the short time windows (last 15 minutes or 1 hour). The red point marks the GRPO step where STOP opened. Select one run: this panel does not separate runs.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 12,
+        "h": 9
+      },
+      "options": {
+        "xField": "step",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Select one GRPO run in Run",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "pointSize": 6,
+            "showPoints": "always"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "step"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "GRPO step"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^(has data|no data|last 15 min / 1 h|STOP)$"
+            },
+            "properties": [
+              {
+                "id": "custom.axisLabel",
+                "value": "held-out accuracy"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "has data"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "no data"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last 15 min / 1 h"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    2,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "STOP"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 14
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT step, exec_accuracy_has_data AS \"has data\", exec_accuracy_no_data AS \"no data\", exec_accuracy_window AS \"last 15 min / 1 h\", CASE WHEN step = stop_step THEN 0.0 END AS \"STOP\" FROM eval LEFT JOIN (SELECT run_id AS stop_run, step AS stop_step FROM incident WHERE state = 'OPEN' AND type = 'REWARD_HACKING') AS stop ON stop.stop_run = run_id WHERE phase = 'grpo' AND eval_set = 'heldout_sql' AND '${run}' <> '%' AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched') UNION ALL SELECT CAST(0 AS BIGINT) AS step, CAST(NULL AS DOUBLE) AS \"has data\", CAST(NULL AS DOUBLE) AS \"no data\", CAST(NULL AS DOUBLE) AS \"last 15 min / 1 h\", CAST(NULL AS DOUBLE) AS \"STOP\" WHERE '${run}' = '%' ORDER BY step",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "id": 9
+    },
+    {
+      "type": "trend",
+      "title": "Label-free signals by GRPO step (select one run): policy entropy, sample NLL, KL to the reference",
+      "description": "Signals that need no gold answers. Policy entropy (solid) and the negative log-likelihood of the sampled tokens (dashed) estimate the same quantity at temperature 1. KL to the reference (dotted, right axis, log scale) is measured against the base model with the adapters disabled; with two questions per step, one question can dominate a step. The red point marks the GRPO step where STOP opened. Select one run.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 42,
+        "w": 12,
+        "h": 9
+      },
+      "options": {
+        "xField": "step",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Select one GRPO run in Run",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "pointSize": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "step"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "GRPO step"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^(policy entropy|sample NLL|STOP)$"
+            },
+            "properties": [
+              {
+                "id": "custom.axisLabel",
+                "value": "entropy, sample NLL (nats)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "policy entropy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sample NLL"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "KL to reference"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    2,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "KL to reference (nats, log scale)"
+              },
+              {
+                "id": "custom.scaleDistribution",
+                "value": {
+                  "type": "log",
+                  "log": 10
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "STOP"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 14
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT step, entropy AS \"policy entropy\", sample_nll AS \"sample NLL\", kl AS \"KL to reference\", CASE WHEN step = stop_step THEN 0.0 END AS \"STOP\" FROM rl_step LEFT JOIN (SELECT run_id AS stop_run, step AS stop_step FROM incident WHERE state = 'OPEN' AND type = 'REWARD_HACKING') AS stop ON stop.stop_run = run_id WHERE '${run}' <> '%' AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched') UNION ALL SELECT CAST(0 AS BIGINT) AS step, CAST(NULL AS DOUBLE) AS \"policy entropy\", CAST(NULL AS DOUBLE) AS \"sample NLL\", CAST(NULL AS DOUBLE) AS \"KL to reference\", CAST(NULL AS DOUBLE) AS \"STOP\" WHERE '${run}' = '%' ORDER BY step",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "id": 10
+    },
+    {
+      "type": "table",
+      "title": "Sampled SQL (GRPO): what the model writes, and what it is paid for",
+      "description": "The highest-reward candidate every few GRPO steps (real Trainium runs). reward is what the training grader paid; correct is whether its result matches the gold query's result.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, scenario, step, reward, exec_match AS correct, sql, question\nFROM sample WHERE $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched') ORDER BY time DESC LIMIT 50",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "GRPO runs only: run healthy_grpo, reward_hacking, or reward_hacking_unwatched"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sql"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 620
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "correct"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "wrong",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "correct",
+                        "color": "green",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reward"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "step"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "question"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 520
+              }
+            ]
+          }
+        ]
+      },
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Control loop through InfluxDB: from the triggering event to the trainer's response",
+      "description": "One pair of dots per command. Seen by the trainer: telemetry -> Kinesis -> Flink detects -> incident written to InfluxDB (ingest node) -> visible on the query node -> the trainer's next poll. Trainer responded: the trainer handles commands between steps, so this adds the rest of the current step (a GRPO step takes 6-8 s). A response can report an applied or ignored command; read the Incident log for the outcome.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, 'seen by the trainer' AS series, seen_latency_ms AS value FROM control_ack\nWHERE seen_latency_ms IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')\nUNION ALL\nSELECT time, 'trainer responded' AS series, apply_latency_ms AS value FROM control_ack\nWHERE apply_latency_ms IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched')\nORDER BY time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "series"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "displayName": "${__field.labels.series}",
+          "noValue": "No commands in the time range",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 10,
+            "showPoints": "always",
+            "lineWidth": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seen by the trainer"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trainer responded"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 8
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "source",
+        "label": "Runs",
+        "type": "custom",
+        "query": "Real Trainium : scenario LIKE 'trn_%',Simulated : scenario NOT LIKE 'trn_%'",
+        "current": {
+          "text": "Real Trainium",
+          "value": "scenario LIKE 'trn_%'"
+        },
+        "options": [
+          {
+            "text": "Real Trainium",
+            "value": "scenario LIKE 'trn_%'",
+            "selected": true
+          },
+          {
+            "text": "Simulated",
+            "value": "scenario NOT LIKE 'trn_%'",
+            "selected": false
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "run",
+        "label": "Run",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb3"
+        },
+        "query": "SELECT DISTINCT run_id FROM eval WHERE $__timeFilter(time) AND $source AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched') ORDER BY run_id DESC",
+        "definition": "SELECT DISTINCT run_id FROM eval WHERE $__timeFilter(time) AND $source AND scenario IN ('healthy_grpo', 'reward_hacking', 'trn_healthy_grpo', 'trn_reward_hacking', 'trn_reward_hacking_unwatched') ORDER BY run_id DESC",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": "%",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "hide": 0
+      }
+    ]
+  }
+}

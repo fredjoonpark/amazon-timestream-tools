@@ -9,12 +9,15 @@ Write records to Amazon Timestream from Apache Flink. This directory contains a 
 
 For Amazon Timestream for InfluxDB 3, start with the [connector README](/integrations/flink_connector/flink-connector-influxdb), which includes a quick start, Flink SQL usage, and a [Managed Service for Apache Flink example](/integrations/flink_connector/flink-connector-influxdb/example/managed-flink/README.md) with a CDK deployment.
 
+> **Sample application: [AI Training Watchdog](/integrations/flink_connector/sample-ai-training-watchdog).** Catches fine-tuning runs that break or game their reward, while they train. Amazon Managed Service for Apache Flink detects the failure and writes it with the InfluxDB 3 connector to Amazon Timestream for InfluxDB 3 Enterprise, which carries each decision back to the trainer. Deploys with CDK.
+
 ----
 ## Overview
 
-This is the root directory for the Timestream Flink connectors, and for samples which show you the end-to-end process of working with Kinesis and Timestream for LiveAnalytics.
+This is the root directory for the Timestream Flink connectors, and for samples which show you the end-to-end process of working with Kinesis and Timestream.
 The directory contains:
  - [Apache Flink Connector for Amazon Timestream for InfluxDB 3](/integrations/flink_connector/flink-connector-influxdb) - Flink DataStream and SQL sink for Amazon Timestream for InfluxDB 3, with its own examples and setup guide
+ - [AI Training Watchdog sample](/integrations/flink_connector/sample-ai-training-watchdog) - end-to-end Managed Service for Apache Flink application that uses the InfluxDB 3 connector to detect failing and reward-hacking fine-tuning runs and sends the trainer its commands through Timestream for InfluxDB 3
  - [Amazon Timestream for LiveAnalytics Flink Sink](/integrations/flink_connector/flink-connector-timestream) - Timestream for LiveAnalytics Flink Sink as Maven module
  - [sample data generator](/integrations/flink_connector/sample-data-generator) - python script which generates and ingests sample data to Kinesis for the Timestream for LiveAnalytics sample application
  - [sample Kinesis to Timestream for LiveAnalytics Application](/integrations/flink_connector/sample-kinesis-to-timestream-app) - sample Flink application which reads records from Kinesis and uses the Timestream for LiveAnalytics Sink to ingest data to Timestream for LiveAnalytics

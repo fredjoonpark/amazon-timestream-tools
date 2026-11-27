@@ -1,0 +1,973 @@
+{
+  "uid": "training-watchdog-divergence",
+  "title": "AI Training Watchdog: Divergence and rollback",
+  "tags": [
+    "flink",
+    "influxdb3",
+    "training",
+    "watchdog-demo"
+  ],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "schemaVersion": 39,
+  "links": [
+    {
+      "title": "Demo dashboards",
+      "type": "dashboards",
+      "tags": [
+        "watchdog-demo"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ],
+  "panels": [
+    {
+      "type": "text",
+      "title": "How to demonstrate divergence and rollback",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**For `bad_lr`.** Follow the learning-rate jump, loss and gradient blowup, then the **DIVERGENCE / ROLLBACK** command. The trainer's **response** should report restoring a checkpoint; loss and gradients should recover as training resumes.\n\n**Run = All** compares divergence runs in the selected time range. The control-loop dots show command delivery and response time."
+      },
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Training loss (mean across ranks)",
+      "description": "Log scale. Non-finite losses (NaN) are plotted at 1e6.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, scenario, loss FROM step_summary WHERE $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('bad_lr', 'trn_bad_lr') ORDER BY time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "scenario"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "pointSize": 8,
+            "spanNulls": false,
+            "insertNulls": 5000,
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
+            }
+          },
+          "displayName": "${__field.labels.scenario}"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bad_lr"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy_grpo"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reward_hacking"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_bad_lr"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy_grpo"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking_unwatched"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "Gradient norm",
+      "description": "",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, scenario, grad_norm FROM step_summary WHERE $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('bad_lr', 'trn_bad_lr') ORDER BY time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "scenario"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "pointSize": 8,
+            "spanNulls": false,
+            "insertNulls": 5000,
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
+            }
+          },
+          "displayName": "${__field.labels.scenario}"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bad_lr"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy_grpo"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reward_hacking"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_bad_lr"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy_grpo"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking_unwatched"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Learning rate",
+      "description": "",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, scenario, lr FROM train_step WHERE rank = '0' AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('bad_lr', 'trn_bad_lr') ORDER BY time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "scenario"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "pointSize": 8,
+            "spanNulls": false,
+            "insertNulls": 5000,
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
+            }
+          },
+          "displayName": "${__field.labels.scenario}",
+          "unit": "sci",
+          "min": 1e-06
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bad_lr"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "healthy_grpo"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reward_hacking"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_bad_lr"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_healthy_grpo"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trn_reward_hacking_unwatched"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Incident log: Flink decides, InfluxDB carries the command, the trainer responds",
+      "description": "Each OPEN row is a command: the trainer reads it from this table (reader endpoint) and responds. ROLLBACK and STOP change the run; ADVISE (HELDOUT_DECLINE: held-out accuracy fell but the grader agreed with the strict check, likely overfitting) lets the run continue, and the trainer keeps its best evaluation's adapters. response is what the trainer reported doing (control_ack), joined on incident_id; seen after is the time from the event that triggered the detection to the trainer reading the row from InfluxDB.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT i.time, i.state, i.type, i.run_id, i.action, i.arg, a.outcome AS response,\n       round(a.seen_latency_ms) AS \"seen after\", i.onset_step, i.step, i.severity, i.message\nFROM (SELECT time, state, type, run_id, incident_id, action, action_arg AS arg, onset_step, step, severity, message\n      FROM incident WHERE $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('bad_lr', 'trn_bad_lr') ORDER BY time DESC LIMIT 100) i\nLEFT JOIN (SELECT incident_id, outcome, seen_latency_ms FROM control_ack WHERE $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('bad_lr', 'trn_bad_lr')) a\n  ON a.incident_id = i.incident_id\nORDER BY i.time DESC",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "message"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 600
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "action"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "STOP": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "ROLLBACK": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "ADVISE": {
+                        "color": "blue",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "response"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 330
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^(stopping|restored).*",
+                      "result": {
+                        "color": "green",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^noted.*",
+                      "result": {
+                        "color": "blue",
+                        "index": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "ignored (watchdog off)": {
+                        "text": "ignored (watchdog off)",
+                        "color": "red",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "run_id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 270
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seen after"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Control loop through InfluxDB: from the triggering event to the trainer's response",
+      "description": "One pair of dots per command. Seen by the trainer: telemetry -> Kinesis -> Flink detects -> incident written to InfluxDB (ingest node) -> visible on the query node -> the trainer's next poll. Trainer responded: the trainer handles commands between steps, so this adds the rest of the current step (a GRPO step takes 6-8 s). A response can report an applied or ignored command; read the Incident log for the outcome.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, 'seen by the trainer' AS series, seen_latency_ms AS value FROM control_ack\nWHERE seen_latency_ms IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('bad_lr', 'trn_bad_lr')\nUNION ALL\nSELECT time, 'trainer responded' AS series, apply_latency_ms AS value FROM control_ack\nWHERE apply_latency_ms IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}' AND scenario IN ('bad_lr', 'trn_bad_lr')\nORDER BY time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "series"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "displayName": "${__field.labels.series}",
+          "noValue": "No commands in the time range",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 10,
+            "showPoints": "always",
+            "lineWidth": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seen by the trainer"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trainer responded"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 6
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "source",
+        "label": "Runs",
+        "type": "custom",
+        "query": "Real Trainium : scenario LIKE 'trn_%',Simulated : scenario NOT LIKE 'trn_%'",
+        "current": {
+          "text": "Real Trainium",
+          "value": "scenario LIKE 'trn_%'"
+        },
+        "options": [
+          {
+            "text": "Real Trainium",
+            "value": "scenario LIKE 'trn_%'",
+            "selected": true
+          },
+          {
+            "text": "Simulated",
+            "value": "scenario NOT LIKE 'trn_%'",
+            "selected": false
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "run",
+        "label": "Run",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb3"
+        },
+        "query": "SELECT DISTINCT run_id FROM eval WHERE $__timeFilter(time) AND $source AND scenario IN ('bad_lr', 'trn_bad_lr') ORDER BY run_id DESC",
+        "definition": "SELECT DISTINCT run_id FROM eval WHERE $__timeFilter(time) AND $source AND scenario IN ('bad_lr', 'trn_bad_lr') ORDER BY run_id DESC",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": "%",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "hide": 0
+      }
+    ]
+  }
+}
