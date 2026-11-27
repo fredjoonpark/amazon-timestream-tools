@@ -1,0 +1,16 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+[project]
+name = "watchdog-sim"
+version = "0.1.0"
+description = "Training-run simulator for the AI Training Watchdog demo"
+requires-python = ">=3.12"
+dependencies = ["boto3>=1.40", "urllib3>=2"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["watchdog_sim"]

@@ -1,0 +1,892 @@
+{
+  "uid": "training-watchdog-data-plane",
+  "title": "AI Training Watchdog: InfluxDB data plane",
+  "tags": [
+    "flink",
+    "influxdb3",
+    "training",
+    "watchdog-demo"
+  ],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "schemaVersion": 39,
+  "links": [
+    {
+      "title": "Demo dashboards",
+      "type": "dashboards",
+      "tags": [
+        "watchdog-demo"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false
+    }
+  ],
+  "panels": [
+    {
+      "type": "text",
+      "title": "How to demonstrate influxdb data plane",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**How InfluxDB carries the demo.** Writes go to the ingest node; trainer polls and dashboard queries go to the query node. Follow call rates, point rates, query/write latency, and the database's series and point counts.\n\nDatabase panels describe all runs. **Runs**, **Run**, and the selected time range filter the control-loop panel. Series cardinality and database size count the whole database in the selected time range; they sit at the bottom because they scan every point in the range (keep it short)."
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Calls per second (peak in the time range)",
+      "description": "Writes: successful write requests from the Flink InfluxDB connector's two sinks (telemetry, and incidents with step summaries) to the ingest node (each carries a batch of points), and points per second. Reads: control polls/s is what every trainer and simulated run reported polling (control_poll telemetry); SQL queries/s is every query the query node logged (system.queries: control polls plus this dashboard).",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Mixed --"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "namespace": "AWS/KinesisAnalytics",
+          "metricName": "numBatchesSuccess",
+          "dimensions": {
+            "Application": "training-watchdog",
+            "Connector": "TimestreamInfluxDB3"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "region": "default",
+          "matchExact": true,
+          "label": "batches",
+          "hide": true,
+          "id": "batches"
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "namespace": "AWS/KinesisAnalytics",
+          "metricName": "numBatchesSuccess",
+          "dimensions": {
+            "Application": "training-watchdog",
+            "Connector": "TimestreamInfluxDB3",
+            "Sink": "control"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "region": "default",
+          "matchExact": true,
+          "label": "control batches",
+          "hide": true,
+          "id": "control_batches"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "expression": "FILL(RATE(batches), 0) + FILL(RATE(control_batches), 0)",
+          "id": "writes",
+          "region": "default",
+          "period": "60",
+          "statistic": "Maximum",
+          "label": "Write calls/s"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "namespace": "AWS/KinesisAnalytics",
+          "metricName": "numRecordsWrittenPerSecond",
+          "dimensions": {
+            "Application": "training-watchdog",
+            "Connector": "TimestreamInfluxDB3"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "region": "default",
+          "matchExact": true,
+          "label": "points",
+          "hide": true,
+          "id": "points"
+        },
+        {
+          "refId": "G",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "namespace": "AWS/KinesisAnalytics",
+          "metricName": "numRecordsWrittenPerSecond",
+          "dimensions": {
+            "Application": "training-watchdog",
+            "Connector": "TimestreamInfluxDB3",
+            "Sink": "control"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "region": "default",
+          "matchExact": true,
+          "label": "control points",
+          "hide": true,
+          "id": "control_points"
+        },
+        {
+          "refId": "H",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "expression": "FILL(points, 0) + FILL(control_points, 0)",
+          "id": "points_written",
+          "region": "default",
+          "period": "60",
+          "statistic": "Average",
+          "label": "Points written/s"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT date_bin(INTERVAL '1 minute', time) AS time, sum(polls) / 60.0 AS \"Control polls/s\" FROM control_poll WHERE $__timeFilter(time) GROUP BY 1 ORDER BY 1",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT date_bin(INTERVAL '1 minute', issue_time) AS time, count(*) / 60.0 AS \"SQL queries/s\" FROM system.queries WHERE $__timeFilter(issue_time) GROUP BY 1 ORDER BY 1",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "none",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "value_and_name",
+        "orientation": "horizontal",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "max"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Write calls/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Points written/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Control polls/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SQL queries/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Points written/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency of every call: dots are SQL queries the query node served; lines are write percentiles",
+      "description": "Dots: end-to-end latency of every SQL query the query node logged (system.queries, up to 10,000 kept), split into control polls (the trainers' incident queries) and dashboard queries. Lines: write latency p50 and p99 of the Flink connector's write calls to the ingest node, per minute (CloudWatch), for the telemetry sink and (dotted) the control sink, which writes the incidents; and the pollers' own p50 round trip (control_poll telemetry, client side, includes the network). Log scale.",
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Mixed --"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT issue_time AS time, arrow_cast(end2end_duration, 'Int64') / 1e6 AS \"control poll\" FROM system.queries WHERE success AND end2end_duration IS NOT NULL AND (strpos(query_text, 'AS time_ns FROM incident') > 0 AND strpos(query_text, 'system.queries') = 0) AND $__timeFilter(issue_time) ORDER BY issue_time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT issue_time AS time, arrow_cast(end2end_duration, 'Int64') / 1e6 AS \"dashboard query\" FROM system.queries WHERE success AND end2end_duration IS NOT NULL AND NOT (strpos(query_text, 'AS time_ns FROM incident') > 0 AND strpos(query_text, 'system.queries') = 0) AND $__timeFilter(issue_time) ORDER BY issue_time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "namespace": "AWS/KinesisAnalytics",
+          "metricName": "writeLatencyP50Millis",
+          "dimensions": {
+            "Application": "training-watchdog",
+            "Connector": "TimestreamInfluxDB3"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "region": "default",
+          "matchExact": true,
+          "label": "write p50",
+          "hide": false,
+          "id": "b"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "namespace": "AWS/KinesisAnalytics",
+          "metricName": "writeLatencyP99Millis",
+          "dimensions": {
+            "Application": "training-watchdog",
+            "Connector": "TimestreamInfluxDB3"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "region": "default",
+          "matchExact": true,
+          "label": "write p99",
+          "hide": false,
+          "id": "c"
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "namespace": "AWS/KinesisAnalytics",
+          "metricName": "writeLatencyP50Millis",
+          "dimensions": {
+            "Application": "training-watchdog",
+            "Connector": "TimestreamInfluxDB3",
+            "Sink": "control"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "region": "default",
+          "matchExact": true,
+          "label": "control write p50",
+          "hide": false,
+          "id": "f"
+        },
+        {
+          "refId": "G",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "queryMode": "Metrics",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "namespace": "AWS/KinesisAnalytics",
+          "metricName": "writeLatencyP99Millis",
+          "dimensions": {
+            "Application": "training-watchdog",
+            "Connector": "TimestreamInfluxDB3",
+            "Sink": "control"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "region": "default",
+          "matchExact": true,
+          "label": "control write p99",
+          "hide": false,
+          "id": "g"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT date_bin(INTERVAL '1 minute', time) AS time, median(latency_p50_ms) AS \"control poll p50 (client)\" FROM control_poll WHERE $__timeFilter(time) GROUP BY 1 ORDER BY 1",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "pointSize": 6,
+            "spanNulls": false,
+            "insertNulls": 180000,
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "control poll"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 4
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dashboard query"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 4
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "write p50"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "write p99"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#199e70"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "control write p50"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "control write p99"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#199e70"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot",
+                  "dash": [
+                    0,
+                    6
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "control poll p50 (client)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    4,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Control loop through InfluxDB: from the triggering event to the trainer's response",
+      "description": "One pair of dots per command. Seen by the trainer: telemetry -> Kinesis -> Flink detects -> incident written to InfluxDB (ingest node) -> visible on the query node -> the trainer's next poll. Trainer responded: the trainer handles commands between steps, so this adds the rest of the current step (a GRPO step takes 6-8 s). A response can report an applied or ignored command; read the Incident log for the outcome.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, 'seen by the trainer' AS series, seen_latency_ms AS value FROM control_ack\nWHERE seen_latency_ms IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}'\nUNION ALL\nSELECT time, 'trainer responded' AS series, apply_latency_ms AS value FROM control_ack\nWHERE apply_latency_ms IS NOT NULL AND $__timeFilter(time) AND $source AND run_id LIKE '${run}'\nORDER BY time",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "series"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "displayName": "${__field.labels.series}",
+          "noValue": "No commands in the time range",
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 10,
+            "showPoints": "always",
+            "lineWidth": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "seen by the trainer"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trainer responded"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 4
+    },
+    {
+      "type": "bargauge",
+      "title": "Series cardinality by measurement (selected time range)",
+      "description": "Distinct tag combinations per measurement in the selected time range. Per-layer and per-head statistics are widest; everything else grows with runs and ranks. Whole database: ignores the Runs and Run selectors. Heavy: it scans every point in the range, on the query node that also serves the trainers' control polls, so a wide range over millions of series slows the polls (and, at 10 million series on db.influx.medium nodes, fails).",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT 'train_step' AS measurement, COUNT(DISTINCT concat_ws('|', local_rank, node, phase, rank, run_id, scenario)) AS series FROM train_step WHERE $__timeFilter(time) UNION ALL SELECT 'layer_stats' AS measurement, COUNT(DISTINCT concat_ws('|', layer, local_rank, module, node, phase, rank, run_id, scenario)) AS series FROM layer_stats WHERE $__timeFilter(time) UNION ALL SELECT 'attn_stats' AS measurement, COUNT(DISTINCT concat_ws('|', head, layer, local_rank, node, phase, rank, run_id, scenario)) AS series FROM attn_stats WHERE $__timeFilter(time) UNION ALL SELECT 'rl_candidate' AS measurement, COUNT(DISTINCT concat_ws('|', candidate, phase, question_id, question_shape, rank, result_class, run_id, scenario)) AS series FROM rl_candidate WHERE $__timeFilter(time) UNION ALL SELECT 'rl_prompt' AS measurement, COUNT(DISTINCT concat_ws('|', phase, prompt_id, prompt_shape, run_id, scenario)) AS series FROM rl_prompt WHERE $__timeFilter(time) UNION ALL SELECT 'eval_question' AS measurement, COUNT(DISTINCT concat_ws('|', eval_set, phase, question_id, question_type, run_id, scenario, window)) AS series FROM eval_question WHERE $__timeFilter(time) UNION ALL SELECT 'run_info' AS measurement, COUNT(DISTINCT concat_ws('|', grader, model, phase, run_id, scenario, seed, watched)) AS series FROM run_info WHERE $__timeFilter(time) UNION ALL SELECT 'neuron_runtime' AS measurement, COUNT(DISTINCT concat_ws('|', phase, run_id, runtime, scenario)) AS series FROM neuron_runtime WHERE $__timeFilter(time) UNION ALL SELECT 'host_cpu' AS measurement, COUNT(DISTINCT concat_ws('|', cpu, phase, run_id, scenario)) AS series FROM host_cpu WHERE $__timeFilter(time) UNION ALL SELECT 'host_mem' AS measurement, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM host_mem WHERE $__timeFilter(time) UNION ALL SELECT 'neuron_hw' AS measurement, COUNT(DISTINCT concat_ws('|', neuron_core, phase, rank, run_id, scenario)) AS series FROM neuron_hw WHERE $__timeFilter(time) UNION ALL SELECT 'step_summary' AS measurement, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM step_summary WHERE $__timeFilter(time) UNION ALL SELECT 'eval' AS measurement, COUNT(DISTINCT concat_ws('|', eval_set, phase, run_id, scenario)) AS series FROM eval WHERE $__timeFilter(time) UNION ALL SELECT 'rl_step' AS measurement, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM rl_step WHERE $__timeFilter(time) UNION ALL SELECT 'sample' AS measurement, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM sample WHERE $__timeFilter(time) UNION ALL SELECT 'checkpoint' AS measurement, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM checkpoint WHERE $__timeFilter(time) UNION ALL SELECT 'heartbeat' AS measurement, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM heartbeat WHERE $__timeFilter(time) UNION ALL SELECT 'incident' AS measurement, COUNT(DISTINCT concat_ws('|', run_id, scenario, severity, state, type)) AS series FROM incident WHERE $__timeFilter(time) UNION ALL SELECT 'control_ack' AS measurement, COUNT(DISTINCT concat_ws('|', action, phase, run_id, scenario, type)) AS series FROM control_ack WHERE $__timeFilter(time) UNION ALL SELECT 'control_poll' AS measurement, COUNT(DISTINCT concat_ws('|', endpoint, phase, run_id, scenario)) AS series FROM control_poll WHERE $__timeFilter(time) ORDER BY series DESC",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "displayMode": "lcd",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "minVizHeight": 14,
+        "maxVizHeight": 22,
+        "reduceOptions": {
+          "values": true,
+          "calcs": [],
+          "fields": "/^series$/"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#3987e5"
+          },
+          "min": 0,
+          "unit": "short",
+          "displayName": "${__field.labels.measurement}"
+        },
+        "overrides": []
+      },
+      "id": 5
+    },
+    {
+      "type": "stat",
+      "title": "Database size (selected time range)",
+      "description": "Counted from the measurements themselves, in the selected time range: points, distinct series (tag combinations), and measurements. Whole database: ignores the Runs and Run selectors. Heavy, like Series cardinality: keep the range short.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT sum(points) AS \"Points stored\", sum(series) AS \"Series\", count(*) AS \"Measurements\" FROM (SELECT 'train_step' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', local_rank, node, phase, rank, run_id, scenario)) AS series FROM train_step WHERE $__timeFilter(time) UNION ALL SELECT 'layer_stats' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', layer, local_rank, module, node, phase, rank, run_id, scenario)) AS series FROM layer_stats WHERE $__timeFilter(time) UNION ALL SELECT 'attn_stats' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', head, layer, local_rank, node, phase, rank, run_id, scenario)) AS series FROM attn_stats WHERE $__timeFilter(time) UNION ALL SELECT 'rl_candidate' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', candidate, phase, question_id, question_shape, rank, result_class, run_id, scenario)) AS series FROM rl_candidate WHERE $__timeFilter(time) UNION ALL SELECT 'rl_prompt' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', phase, prompt_id, prompt_shape, run_id, scenario)) AS series FROM rl_prompt WHERE $__timeFilter(time) UNION ALL SELECT 'eval_question' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', eval_set, phase, question_id, question_type, run_id, scenario, window)) AS series FROM eval_question WHERE $__timeFilter(time) UNION ALL SELECT 'run_info' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', grader, model, phase, run_id, scenario, seed, watched)) AS series FROM run_info WHERE $__timeFilter(time) UNION ALL SELECT 'neuron_runtime' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', phase, run_id, runtime, scenario)) AS series FROM neuron_runtime WHERE $__timeFilter(time) UNION ALL SELECT 'host_cpu' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', cpu, phase, run_id, scenario)) AS series FROM host_cpu WHERE $__timeFilter(time) UNION ALL SELECT 'host_mem' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM host_mem WHERE $__timeFilter(time) UNION ALL SELECT 'neuron_hw' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', neuron_core, phase, rank, run_id, scenario)) AS series FROM neuron_hw WHERE $__timeFilter(time) UNION ALL SELECT 'step_summary' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM step_summary WHERE $__timeFilter(time) UNION ALL SELECT 'eval' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', eval_set, phase, run_id, scenario)) AS series FROM eval WHERE $__timeFilter(time) UNION ALL SELECT 'rl_step' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM rl_step WHERE $__timeFilter(time) UNION ALL SELECT 'sample' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM sample WHERE $__timeFilter(time) UNION ALL SELECT 'checkpoint' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM checkpoint WHERE $__timeFilter(time) UNION ALL SELECT 'heartbeat' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', phase, run_id, scenario)) AS series FROM heartbeat WHERE $__timeFilter(time) UNION ALL SELECT 'incident' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', run_id, scenario, severity, state, type)) AS series FROM incident WHERE $__timeFilter(time) UNION ALL SELECT 'control_ack' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', action, phase, run_id, scenario, type)) AS series FROM control_ack WHERE $__timeFilter(time) UNION ALL SELECT 'control_poll' AS measurement, COUNT(*) AS points, COUNT(DISTINCT concat_ws('|', endpoint, phase, run_id, scenario)) AS series FROM control_poll WHERE $__timeFilter(time))",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "vertical",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "id": 6
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "source",
+        "label": "Runs",
+        "type": "custom",
+        "query": "Real Trainium : scenario LIKE 'trn_%',Simulated : scenario NOT LIKE 'trn_%'",
+        "current": {
+          "text": "Real Trainium",
+          "value": "scenario LIKE 'trn_%'"
+        },
+        "options": [
+          {
+            "text": "Real Trainium",
+            "value": "scenario LIKE 'trn_%'",
+            "selected": true
+          },
+          {
+            "text": "Simulated",
+            "value": "scenario NOT LIKE 'trn_%'",
+            "selected": false
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "run",
+        "label": "Run",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb3"
+        },
+        "query": "SELECT DISTINCT run_id FROM eval WHERE $__timeFilter(time) AND $source ORDER BY run_id DESC",
+        "definition": "SELECT DISTINCT run_id FROM eval WHERE $__timeFilter(time) AND $source ORDER BY run_id DESC",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": "%",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "hide": 0
+      }
+    ]
+  }
+}

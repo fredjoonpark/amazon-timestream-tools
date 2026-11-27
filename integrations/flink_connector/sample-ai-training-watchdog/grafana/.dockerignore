@@ -1,0 +1,7 @@
+# Only what the Dockerfile copies. CDK hashes this directory for the image asset, so anything else
+# (build_dashboard.py's __pycache__, say) would change the hash and replace the Grafana task on a
+# deploy that changed nothing.
+*
+!Dockerfile
+!provisioning/
+!dashboards/

@@ -1,0 +1,10 @@
+# Only what the Dockerfile copies. CDK hashes this directory for the image asset, so anything else
+# (.venv, test caches, egg-info) would change the hash and redeploy the simulator service, which
+# resets its task count (scripts/simulator.sh off) on a deploy that changed nothing.
+*
+!Dockerfile
+!pyproject.toml
+!uv.lock
+!watchdog_sim/
+**/__pycache__
+**/*.pyc

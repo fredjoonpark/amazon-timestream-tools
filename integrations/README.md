@@ -5,6 +5,7 @@ To continue to use your preferred data collection, analytics, visualization, and
 * [Sending data to Amazon Timestream using AWS IoT Core](https://github.com/awslabs/amazon-timestream-tools/blob/mainline/integrations/iot_core/)
 * [Sending data to Amazon Timestream using open source Telegraf](https://github.com/awslabs/amazon-timestream-tools/tree/mainline/integrations/telegraf/)
 * [Sending data to Amazon Timestream for InfluxDB 3 using Apache Flink](https://github.com/awslabs/amazon-timestream-tools/blob/mainline/integrations/flink_connector/flink-connector-influxdb/) ([Maven Central](https://central.sonatype.com/artifact/software.amazon.timestream/flink-connector-timestream-influxdb3))
+  * **Sample application:** [AI Training Watchdog](https://github.com/awslabs/amazon-timestream-tools/tree/mainline/integrations/flink_connector/sample-ai-training-watchdog/) catches fine-tuning runs that break or game their reward, while they train, with Amazon Managed Service for Apache Flink and Amazon Timestream for InfluxDB 3 Enterprise
 * [Sending data to Amazon Timestream for LiveAnalytics using Apache Flink](https://github.com/awslabs/amazon-timestream-tools/blob/mainline/integrations/flink_connector/)
 * [Writing and Querying Amazon Timestream with Pandas (AWS Data Wrangler)](https://github.com/awslabs/amazon-timestream-tools/tree/mainline/integrations/pandas)
 * [Ingesting data to Amazon Timestream from Apache Kafka using Kafka Connect](https://github.com/awslabs/amazon-timestream-tools/tree/mainline/integrations/kafka_connector)
